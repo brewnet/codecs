@@ -8,9 +8,18 @@
 package form
 
 import (
+	"errors"
 	"github.com/stretchr/objx"
 	"reflect"
 	"strings"
+)
+
+const (
+	mimeCategory    = "application"
+	mimeName        = "vnd.brewnet.form"
+	baseMime        = mimeCategory + "/" + mimeName
+	defaultFullMime = baseMime + "+json"
+	defaultSubMime  = "application/json"
 )
 
 type Pather interface {
@@ -19,7 +28,7 @@ type Pather interface {
 
 type Receiver interface {
 	Receive(interface{}) error
-	FormFields(prefix string) objx.Map
+	FormFields(name string) objx.Map
 }
 
 // BrewnetFormCodec supports Marshaling and Unmarshaling instructions
@@ -47,7 +56,7 @@ type Receiver interface {
 //    "radio":
 //        This type will have a sub-element named "options", the same as the "dropdown" type.
 //
-type BrewnetFormCodec struct {}
+type BrewnetFormCodec struct{}
 
 func (codec *BrewnetFormCodec) Example() interface{} {
 	return objx.Map{
@@ -55,22 +64,45 @@ func (codec *BrewnetFormCodec) Example() interface{} {
 		"method": "POST",
 		"fields": objx.Map{
 			"name": objx.Map{
-				"label": "Name",
+				"label":    "Name",
 				"required": true,
-				"type": "text",
+				"type":     "text",
 			},
 			"address.street1": objx.Map{
-				"label": "Address Line 1",
+				"label":    "Address Line 1",
 				"required": false,
-				"type": "text",
+				"type":     "text",
 			},
 			"address.street2": objx.Map{
-				"label": "Address Line 2",
+				"label":    "Address Line 2",
 				"required": false,
-				"type": "text",
+				"type":     "text",
 			},
 		},
 	}
+}
+
+func (codec *BrewnetFormCodec) ContentType() string {
+	return defaultFullMime
+}
+
+func (codec *BrewnetFormCodec) FileExtension() string {
+	return ".brewform"
+}
+
+func (codec *BrewnetFormCodec) CanMarshalWithCallback() bool {
+	return true
+}
+
+func (codec *BrewnetFormCodec) ContentTypeSupported(contentType string) bool {
+	if index := strings.IndexRune(contentType, '+'); index != -1 {
+		contentType = contentType[:index]
+	}
+	return contentType == codec.ContentType()
+}
+
+func (codec *BrewnetFormCodec) Unmarshal(data []byte, obj interface{}) error {
+	return errors.New("Unmarshal is currently a stub")
 }
 
 // Marshal takes a target object and returns a []byte representing the
@@ -91,17 +123,19 @@ func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string
 	}
 	if objType.Kind() == reflect.Struct {
 		src["fields"] = codec.marshalStructFields("", objType, options)
+	} else if receiver, ok := object.(Receiver); ok {
+		src["fields"] = receiver.FormFields(options.Get("name").Str())
 	} else {
 		src["fields"] = objx.Map{
 			options.Get("name").Str(): objx.Map{
-				"label": options.Get("label").Str(),
+				"label":    options.Get("label").Str(),
 				"required": options.Get("required").Bool(true),
-				"type": codec.FormFieldType(objType),
+				"type":     codec.FormFieldType(objType),
 			},
 		}
 	}
 	// This is currently a stub
-	return nil, nil
+	return nil, errors.New("Marshal is currently a stub")
 }
 
 func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflect.Type, options map[string]interface{}) objx.Map {
@@ -132,7 +166,7 @@ func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflec
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() == reflect.Struct {
-			fields.MergeHere(codec.marshalStructFields(name + ".", fieldType, options))
+			fields.MergeHere(codec.marshalStructFields(name+".", fieldType, options))
 			continue
 		}
 		fieldMap := make(objx.Map)
