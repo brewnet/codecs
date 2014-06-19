@@ -9,6 +9,7 @@ package form
 
 import (
 	"errors"
+	"github.com/stretchr/codecs/services"
 	"github.com/stretchr/objx"
 	"reflect"
 	"strings"
@@ -21,6 +22,19 @@ const (
 	defaultFullMime = baseMime + "+json"
 	defaultSubMime  = "application/json"
 )
+
+var defaultCodecService services.CodecService
+
+func CodecService() services.CodecService {
+	if defaultCodecService == nil {
+		defaultCodecService = services.NewWebCodecService()
+	}
+	return defaultCodecService
+}
+
+func SetCodecService(service services.CodecService) {
+	defaultCodecService = service
+}
 
 type Pather interface {
 	Path() string
@@ -134,8 +148,17 @@ func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string
 			},
 		}
 	}
-	// This is currently a stub
-	return nil, errors.New("Marshal is currently a stub")
+	baseType := defaultSubMime
+	matchedType := options.Get("matched_type").Str()
+	if startIdx := strings.IndexRune(matchedType, '+'); startIdx >= 0 {
+		subType := matchedType[startIdx+1:]
+		baseType = mimeCategory + "/" + subType
+	}
+	subCodec, err := CodecService().GetCodec(baseType)
+	if err != nil {
+		return nil, err
+	}
+	return subCodec.Marshal(src, optionsMSI)
 }
 
 func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflect.Type, options map[string]interface{}) objx.Map {
