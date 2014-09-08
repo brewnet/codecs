@@ -9,10 +9,13 @@ package form
 
 import (
 	"errors"
-	"github.com/stretchr/codecs/services"
-	"github.com/stretchr/objx"
+	"path"
 	"reflect"
 	"strings"
+
+	"github.com/stretchr/codecs/services"
+	"github.com/stretchr/goweb/context"
+	"github.com/stretchr/objx"
 )
 
 const (
@@ -112,7 +115,7 @@ func (codec *BrewnetFormCodec) ContentTypeSupported(contentType string) bool {
 	if index := strings.IndexRune(contentType, '+'); index != -1 {
 		contentType = contentType[:index]
 	}
-	return contentType == codec.ContentType()
+	return contentType == baseMime
 }
 
 func (codec *BrewnetFormCodec) Unmarshal(data []byte, obj interface{}) error {
@@ -124,8 +127,10 @@ func (codec *BrewnetFormCodec) Unmarshal(data []byte, obj interface{}) error {
 // object.
 func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string]interface{}) ([]byte, error) {
 	options := objx.Map(optionsMSI)
+	ctx := options.Get("context").Inter().(context.Context)
+	domain := options.Get("domain").Str()
 	src := objx.Map{
-		"action": options.Get("target").Str(),
+		"action": path.Join(domain, ctx.HttpRequest().URL.String()),
 		"method": options.Get("http-method").Str("POST"),
 	}
 	if pather, ok := object.(Pather); ok {
