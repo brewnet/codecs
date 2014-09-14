@@ -21,8 +21,8 @@ import (
 const (
 	mimeCategory    = "application"
 	mimeName        = "vnd.brewnet.form"
-	baseMime        = mimeCategory + "/" + mimeName
-	defaultFullMime = baseMime + "+json"
+	BaseMime        = mimeCategory + "/" + mimeName
+	defaultFullMime = BaseMime + "+json"
 	defaultSubMime  = "application/json"
 )
 
@@ -115,7 +115,7 @@ func (codec *BrewnetFormCodec) ContentTypeSupported(contentType string) bool {
 	if index := strings.IndexRune(contentType, '+'); index != -1 {
 		contentType = contentType[:index]
 	}
-	return contentType == baseMime
+	return contentType == BaseMime
 }
 
 func (codec *BrewnetFormCodec) Unmarshal(data []byte, obj interface{}) error {
