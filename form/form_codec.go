@@ -9,11 +9,11 @@ package form
 
 import (
 	"errors"
-	"path"
+	"fmt"
 	"reflect"
 	"strings"
 
-	"github.com/stretchr/codecs/services"
+	"github.com/go-requests/requests"
 	"github.com/stretchr/goweb/context"
 	"github.com/stretchr/objx"
 )
@@ -25,28 +25,6 @@ const (
 	defaultFullMime = BaseMime + "+json"
 	defaultSubMime  = "application/json"
 )
-
-var defaultCodecService services.CodecService
-
-func CodecService() services.CodecService {
-	if defaultCodecService == nil {
-		defaultCodecService = services.NewWebCodecService()
-	}
-	return defaultCodecService
-}
-
-func SetCodecService(service services.CodecService) {
-	defaultCodecService = service
-}
-
-type Pather interface {
-	Path() string
-}
-
-type Receiver interface {
-	Receive(interface{}) error
-	FormFields(name string) objx.Map
-}
 
 // BrewnetFormCodec supports Marshaling and Unmarshaling instructions
 // for form creation.  You can Marshal any value and it will be turned
@@ -79,18 +57,21 @@ func (codec *BrewnetFormCodec) Example() interface{} {
 	return objx.Map{
 		"action": "https://path/to/endpoint",
 		"method": "POST",
-		"fields": objx.Map{
-			"name": objx.Map{
+		"fields": []interface{}{
+			objx.Map{
+				"id":       "name",
 				"label":    "Name",
 				"required": true,
 				"type":     "text",
 			},
-			"address.street1": objx.Map{
+			objx.Map{
+				"id":       "address.street1",
 				"label":    "Address Line 1",
 				"required": false,
 				"type":     "text",
 			},
-			"address.street2": objx.Map{
+			objx.Map{
+				"id":       "address.street2",
 				"label":    "Address Line 2",
 				"required": false,
 				"type":     "text",
@@ -129,8 +110,11 @@ func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string
 	options := objx.Map(optionsMSI)
 	ctx := options.Get("context").Inter().(context.Context)
 	domain := options.Get("domain").Str()
+	if domain[len(domain)-1] == '/' {
+		domain = domain[:len(domain)-1]
+	}
 	src := objx.Map{
-		"action": path.Join(domain, ctx.HttpRequest().URL.String()),
+		"action": fmt.Sprintf("%s%s", domain, ctx.HttpRequest().URL.String()),
 		"method": options.Get("http-method").Str("POST"),
 	}
 	if pather, ok := object.(Pather); ok {
@@ -142,8 +126,6 @@ func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string
 	}
 	if objType.Kind() == reflect.Struct {
 		src["fields"] = codec.marshalStructFields("", objType, options)
-	} else if receiver, ok := object.(Receiver); ok {
-		src["fields"] = receiver.FormFields(options.Get("name").Str())
 	} else {
 		src["fields"] = objx.Map{
 			options.Get("name").Str(): objx.Map{
@@ -185,11 +167,11 @@ func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflec
 			continue
 		}
 		name = prefix + name
-		if receiver, ok := reflect.Zero(objType).Interface().(Receiver); ok {
-			fields.MergeHere(receiver.FormFields(name))
+		fieldType := field.Type
+		if receiver, ok := reflect.Zero(objType).Interface().(requests.ReceiveTyper); ok {
+			fieldType = reflect.TypeOf(receiver.ReceiveType())
 			continue
 		}
-		fieldType := field.Type
 		for fieldType.Kind() == reflect.Ptr {
 			fieldType = fieldType.Elem()
 		}
