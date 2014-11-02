@@ -168,8 +168,12 @@ func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflec
 		}
 		name = prefix + name
 		fieldType := field.Type
-		if receiver, ok := reflect.Zero(objType).Interface().(requests.ReceiveTyper); ok {
-			fieldType = reflect.TypeOf(receiver.ReceiveType())
+		receiveTyper, ok := reflect.Zero(objType).Interface().(requests.ReceiveTyper)
+		if !ok {
+			receiveTyper, ok = reflect.New(objType).Interface().(requests.ReceiveTyper)
+		}
+		if ok {
+			fieldType = reflect.TypeOf(receiveTyper.ReceiveType())
 			continue
 		}
 		for fieldType.Kind() == reflect.Ptr {
