@@ -29,7 +29,7 @@ const (
 	BaseMIMEType = mimeType + "/" + mimeSubType
 )
 
-// Form supports Marshaling and Unmarshaling instructions for form
+// Codec supports Marshaling and Unmarshaling instructions for form
 // creation.  You can Marshal any value and it will be turned into
 // information about the form that one should use for allowing user
 // input for a value of the given type, or Unmarshal form data in a
@@ -51,29 +51,29 @@ const (
 //    "password": <input type="password">
 //    "selection": <select> or <radio>
 //        This type will have a sub-element named "options", which you can use to add <option> elements to the <select> element.
-type Form struct {
+type Codec struct {
 	domain      string
 	subCodec    silverback.Codec
 	matchedType silverback.MIMEType
 }
 
-func (codec *Form) New(matched silverback.MIMEType) silverback.Codec {
+func (codec *Codec) New(matched silverback.MIMEType) silverback.Codec {
 	if matched.Type != mimeType {
 		return nil
 	}
-	newForm := &Form{
+	newCodec := &Codec{
 		domain: codec.domain,
 	}
 	switch matched.SubType {
 	case "*", mimeSubType + "+json":
-		newForm.subCodec = new(codecs.JSON)
+		newCodec.subCodec = new(codecs.JSON)
 	default:
 		return nil
 	}
-	return newForm
+	return newCodec
 }
 
-func (codec *Form) Types() []silverback.MIMEType {
+func (codec *Codec) Types() []silverback.MIMEType {
 	return []silverback.MIMEType{
 		{
 			Type:    mimeType,
@@ -82,14 +82,14 @@ func (codec *Form) Types() []silverback.MIMEType {
 	}
 }
 
-func (codec *Form) Unmarshal(data []byte, obj interface{}) error {
+func (codec *Codec) Unmarshal(data []byte, obj interface{}) error {
 	return errors.New("Unmarshal is currently a stub")
 }
 
 // Marshal takes a target object and returns a []byte representing the
 // form that you should use for taking user input for the target
 // object.
-func (codec *Form) Marshal(object interface{}) ([]byte, error) {
+func (codec *Codec) Marshal(object interface{}) ([]byte, error) {
 	domain := codec.domain
 	if domain[len(domain)-1] == '/' {
 		domain = domain[:len(domain)-1]
@@ -111,7 +111,7 @@ func (codec *Form) Marshal(object interface{}) ([]byte, error) {
 	return codec.subCodec.Marshal(src)
 }
 
-func (codec *Form) marshalStructFields(prefix string, objType reflect.Type) map[string]interface{} {
+func (codec *Codec) marshalStructFields(prefix string, objType reflect.Type) map[string]interface{} {
 	fields := make(map[string]interface{})
 	for i := 0; i < objType.NumField(); i++ {
 		field := objType.Field(i)
@@ -167,7 +167,7 @@ func (codec *Form) marshalStructFields(prefix string, objType reflect.Type) map[
 	return fields
 }
 
-func (codec *Form) fieldNameAndOptions(field reflect.StructField) (string, map[string]interface{}) {
+func (codec *Codec) fieldNameAndOptions(field reflect.StructField) (string, map[string]interface{}) {
 	tag := field.Tag.Get("request")
 	end := strings.IndexRune(tag, ',')
 	if end < 0 {
@@ -218,7 +218,7 @@ func (codec *Form) fieldNameAndOptions(field reflect.StructField) (string, map[s
 	return name, options
 }
 
-func (codec *Form) FormFieldType(objType reflect.Type) string {
+func (codec *Codec) FormFieldType(objType reflect.Type) string {
 	var inputType string
 	switch objType.Kind() {
 	case reflect.Bool:
