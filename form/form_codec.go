@@ -9,32 +9,35 @@ package form
 
 import (
 	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 
-	"github.com/go-requests/requests"
-	"github.com/stretchr/goweb/context"
-	"github.com/stretchr/objx"
+	"github.com/nelsam/requests"
+	"github.com/nelsam/silverback"
+	"github.com/nelsam/silverback/codecs"
 )
 
 const (
-	mimeCategory    = "application"
-	mimeName        = "vnd.brewnet.form"
-	BaseMime        = mimeCategory + "/" + mimeName
-	defaultFullMime = BaseMime + "+json"
+	mimeType        = "application"
+	mimeSubType     = "vnd.brewnet.form"
+	defaultFullMime = BaseMIMEType + "+json"
 	defaultSubMime  = "application/json"
+
+	// BaseMIMEType contains the form codec's base MIME type.  Most of
+	// the time, another type will be appended after a "+", to denote
+	// the full format of the type.
+	BaseMIMEType = mimeType + "/" + mimeSubType
 )
 
-// BrewnetFormCodec supports Marshaling and Unmarshaling instructions
-// for form creation.  You can Marshal any value and it will be turned
-// into information about the form that one should use for allowing
-// user input for a value of the given type, or Unmarshal form data in
-// a request to retrieve a set of input values.
+// Form supports Marshaling and Unmarshaling instructions for form
+// creation.  You can Marshal any value and it will be turned into
+// information about the form that one should use for allowing user
+// input for a value of the given type, or Unmarshal form data in a
+// request to retrieve a set of input values.
 //
-// Any data using this MIMEtype will have some basic information, like
-// the URL to send data to and the method to use, as values at the
-// base level. It will also have a value at the top level that
+// Any data using this MIME type will have some basic information,
+// like the URL to send data to and the method to use, as values at
+// the base level. It will also have a value at the top level that
 // contains details used to create fields within the form (e.g. <input
 // type="text" id="thing"/>). The key of each field will be the name
 // to use when sending form data. Each field will specify the label
@@ -46,119 +49,81 @@ const (
 //
 //    "text": <input type="text">
 //    "password": <input type="password">
-//    "dropdown": <select>
+//    "selection": <select> or <radio>
 //        This type will have a sub-element named "options", which you can use to add <option> elements to the <select> element.
-//    "radio":
-//        This type will have a sub-element named "options", the same as the "dropdown" type.
-//
-type BrewnetFormCodec struct{}
+type Form struct {
+	domain      string
+	subCodec    silverback.Codec
+	matchedType silverback.MIMEType
+}
 
-func (codec *BrewnetFormCodec) Example() interface{} {
-	return objx.Map{
-		"action": "https://path/to/endpoint",
-		"method": "POST",
-		"fields": []interface{}{
-			objx.Map{
-				"id":       "name",
-				"label":    "Name",
-				"required": true,
-				"type":     "text",
-			},
-			objx.Map{
-				"id":       "address.street1",
-				"label":    "Address Line 1",
-				"required": false,
-				"type":     "text",
-			},
-			objx.Map{
-				"id":       "address.street2",
-				"label":    "Address Line 2",
-				"required": false,
-				"type":     "text",
-			},
+func (codec *Form) New(matched silverback.MIMEType) silverback.Codec {
+	if matched.Type != mimeType {
+		return nil
+	}
+	newForm := &Form{
+		domain: codec.domain,
+	}
+	switch matched.SubType {
+	case "*", mimeSubType + "+json":
+		newForm.subCodec = new(codecs.JSON)
+	default:
+		return nil
+	}
+	return newForm
+}
+
+func (codec *Form) Types() []silverback.MIMEType {
+	return []silverback.MIMEType{
+		{
+			Type:    mimeType,
+			SubType: mimeSubType + "+json",
 		},
 	}
 }
 
-func (codec *BrewnetFormCodec) ContentType() string {
-	return defaultFullMime
-}
-
-func (codec *BrewnetFormCodec) FileExtension() string {
-	return ".brewform"
-}
-
-func (codec *BrewnetFormCodec) CanMarshalWithCallback() bool {
-	return true
-}
-
-func (codec *BrewnetFormCodec) ContentTypeSupported(contentType string) bool {
-	if index := strings.IndexRune(contentType, '+'); index != -1 {
-		contentType = contentType[:index]
-	}
-	return contentType == BaseMime
-}
-
-func (codec *BrewnetFormCodec) Unmarshal(data []byte, obj interface{}) error {
+func (codec *Form) Unmarshal(data []byte, obj interface{}) error {
 	return errors.New("Unmarshal is currently a stub")
 }
 
 // Marshal takes a target object and returns a []byte representing the
 // form that you should use for taking user input for the target
 // object.
-func (codec *BrewnetFormCodec) Marshal(object interface{}, optionsMSI map[string]interface{}) ([]byte, error) {
-	options := objx.Map(optionsMSI)
-	ctx := options.Get("context").Inter().(context.Context)
-	domain := options.Get("domain").Str()
+func (codec *Form) Marshal(object interface{}) ([]byte, error) {
+	domain := codec.domain
 	if domain[len(domain)-1] == '/' {
 		domain = domain[:len(domain)-1]
 	}
-	src := objx.Map{
-		"action": fmt.Sprintf("%s%s", domain, ctx.HttpRequest().URL.String()),
-		"method": options.Get("http-method").Str("POST"),
+	src := map[string]interface{}{
+		"method": codec.matchedType.Options["method"],
 	}
 	if pather, ok := object.(Pather); ok {
-		src["action"] = pather.Path()
+		src["action"] = domain + "/" + pather.Path()
 	}
 	objType := reflect.TypeOf(object)
 	for objType.Kind() == reflect.Ptr {
 		objType = objType.Elem()
 	}
-	if objType.Kind() == reflect.Struct {
-		src["fields"] = codec.marshalStructFields("", objType, options)
-	} else {
-		src["fields"] = objx.Map{
-			options.Get("name").Str(): objx.Map{
-				"label":    options.Get("label").Str(),
-				"required": options.Get("required").Bool(true),
-				"type":     codec.FormFieldType(objType),
-			},
-		}
+	if objType.Kind() != reflect.Struct {
+		return nil, errors.New("Cannot marshal non-struct types to forms")
 	}
-	baseType := defaultSubMime
-	matchedType := options.Get("matched_type").Str()
-	if startIdx := strings.IndexRune(matchedType, '+'); startIdx >= 0 {
-		subType := matchedType[startIdx+1:]
-		baseType = mimeCategory + "/" + subType
-	}
-	subCodec, err := CodecService().GetCodec(baseType)
-	if err != nil {
-		return nil, err
-	}
-	return subCodec.Marshal(src, optionsMSI)
+	src["fields"] = codec.marshalStructFields("", objType)
+	return codec.subCodec.Marshal(src)
 }
 
-func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflect.Type, options map[string]interface{}) objx.Map {
-	fields := make(objx.Map)
+func (codec *Form) marshalStructFields(prefix string, objType reflect.Type) map[string]interface{} {
+	fields := make(map[string]interface{})
 	for i := 0; i < objType.NumField(); i++ {
 		field := objType.Field(i)
 		if field.Anonymous {
-			anonFields := codec.marshalStructFields(prefix, field.Type, options)
+			anonFields := codec.marshalStructFields(prefix, field.Type)
 
 			// Make sure fields from the embedded struct are
 			// overwritten by fields already loaded from the embedding
 			// struct.
-			anonFields.MergeHere(fields)
+			for key, val := range fields {
+				anonFields[key] = val
+			}
 			fields = anonFields
 			continue
 		}
@@ -180,30 +145,36 @@ func (codec *BrewnetFormCodec) marshalStructFields(prefix string, objType reflec
 			fieldType = fieldType.Elem()
 		}
 		if fieldType.Kind() == reflect.Struct {
-			fields.MergeHere(codec.marshalStructFields(name+".", fieldType, options))
+			for newKey, newVal := range codec.marshalStructFields(name+".", fieldType) {
+				fields[newKey] = newVal
+			}
 			continue
 		}
-		fieldMap := make(objx.Map)
-		if label := tagOptions.Get("label").Str(); label != "" {
-			fieldMap["label"] = label
+		fieldMap := make(map[string]interface{})
+		if label, ok := tagOptions["label"]; ok {
+			fieldMap["label"] = label.(string)
 		} else {
-			fieldMap["label"] = strings.Title(name)
+			title := strings.Title(strings.Replace(name, "_", " ", -1))
+			fieldMap["label"] = title
 		}
-		fieldMap["required"] = tagOptions.Get("required").Bool(false)
+		fieldMap["required"] = false
+		if required, ok := tagOptions["required"]; ok {
+			fieldMap["required"] = required.(bool)
+		}
 		fieldMap["type"] = codec.FormFieldType(fieldType)
 		fields[name] = fieldMap
 	}
 	return fields
 }
 
-func (codec *BrewnetFormCodec) fieldNameAndOptions(field reflect.StructField) (string, objx.Map) {
+func (codec *Form) fieldNameAndOptions(field reflect.StructField) (string, map[string]interface{}) {
 	tag := field.Tag.Get("request")
 	end := strings.IndexRune(tag, ',')
 	if end < 0 {
 		end = len(tag)
 	}
 	name := tag[:end]
-	options := make(objx.Map)
+	options := make(map[string]interface{})
 	for end < len(tag) {
 		tag = tag[end+1:]
 		end = strings.IndexRune(tag, ',')
@@ -213,11 +184,11 @@ func (codec *BrewnetFormCodec) fieldNameAndOptions(field reflect.StructField) (s
 		optionStr := tag[:end]
 		split := strings.IndexRune(optionStr, '=')
 		if split < 0 {
-			options.Set(optionStr, true)
+			options[optionStr] = true
 		} else {
 			key := optionStr[:split]
 			value := optionStr[split+1:]
-			options.Set(key, value)
+			options[key] = value
 		}
 	}
 
@@ -247,7 +218,7 @@ func (codec *BrewnetFormCodec) fieldNameAndOptions(field reflect.StructField) (s
 	return name, options
 }
 
-func (codec *BrewnetFormCodec) FormFieldType(objType reflect.Type) string {
+func (codec *Form) FormFieldType(objType reflect.Type) string {
 	var inputType string
 	switch objType.Kind() {
 	case reflect.Bool:
