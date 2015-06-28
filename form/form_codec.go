@@ -57,6 +57,11 @@ type Codec struct {
 	matchedType silverback.MIMEType
 }
 
+// NewCodec creates a new form codec for the provided domain.
+func NewCodec(domain string) *Codec {
+	return &Codec{domain: domain}
+}
+
 func (codec *Codec) New(matched silverback.MIMEType) silverback.Codec {
 	if matched.Type != mimeType {
 		return nil
