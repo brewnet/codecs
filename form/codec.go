@@ -1,10 +1,9 @@
-// The form package contains our codec for
-// application/vnd.brewnet.form.  When requesting this codec, you
-// should include an additional sub-codec to use for converting to
-// text - our codec type only ensures a specific structure to the
-// response.  You probably want to use
-// "application/vnd.brewnet.form+json" in your Accept header, although
-// many other base types are supported.
+// Package form contains our codec for application/vnd.brewnet.form.
+// When requesting this codec, you should include an additional
+// sub-codec to use for converting to text - our codec type only
+// ensures a specific structure to the response.  You probably want to
+// use "application/vnd.brewnet.form+json" in your Accept header,
+// although that's not necessarily the only base type supported.
 package form
 
 import (
